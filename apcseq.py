@@ -154,6 +154,22 @@ class Sequencer:
 
     def select_page(self, page):
         if page != self.current_page:
+            old_page_index = self.current_page
+
+            # Clean up playhead from the old page if it's currently there
+            if self.is_playing and self.prev_step is not None:
+                prev_page_of_playhead = self.prev_step // 8
+                if prev_page_of_playhead == old_page_index:
+                    col_index_on_old_page = self.prev_step % 8
+                    column_to_clear = self.apc.grid_columns[col_index_on_old_page]
+                    button_states_from_model = self.apc.button_sets[
+                        old_page_index
+                    ].grid_columns[col_index_on_old_page]
+
+                    for i, button in enumerate(column_to_clear):
+                        is_on = getattr(button_states_from_model[i], "is_on", False)
+                        button.light("orange" if is_on else "off")
+
             # Update lit state for all page indicators on all pages
             for page_buttons in self.apc.button_sets:
                 page_buttons.bottom_row[4 + self.current_page].lit = "off"
