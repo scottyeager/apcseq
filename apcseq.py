@@ -83,8 +83,15 @@ class Sequencer:
         self.current_page = 0
 
         # Create a button set for each page
+        shared_bottom_row = self.apc.bottom_row
+        shared_right_column = self.apc.right_column
+        shared_shift = self.apc.shift
         for _ in range(self.total_pages - 1):
-            self.apc.add_button_set()
+            self.apc.add_button_set(
+                bottom_row=shared_bottom_row,
+                right_column=shared_right_column,
+                shift=shared_shift,
+            )
 
         # Add is_on attribute to all grid buttons for sequence state
         for page_buttons in self.apc.button_sets:
@@ -114,15 +121,15 @@ class Sequencer:
         for button in self.apc.grid:
             button.light("off")
 
-        # Light up right column (mute buttons) and set lit state on all pages
-        for page_buttons in self.apc.button_sets:
-            for button in page_buttons.right_column:
-                button.lit = "on"
+        # Light up right column (mute buttons)
         for button in self.apc.right_column:
             button.light("on")
 
         # Set initial page indicator
         self.select_page(0)
+        for i in range(4, 8):
+            self.apc.bottom_row[i].light("off")
+        self.apc.bottom_row[4 + self.current_page].light("green")
 
     def redraw_grid_for_page(self, page_idx):
         page_buttons = self.apc.button_sets[page_idx]
@@ -159,11 +166,6 @@ class Sequencer:
                 row_idx = self.apc.right_column.index(control)
                 self.muted_rows[row_idx] = not self.muted_rows[row_idx]
                 new_state = "off" if self.muted_rows[row_idx] else "green"
-
-                # Update lit state on all pages
-                for page_buttons in self.apc.button_sets:
-                    page_buttons.right_column[row_idx].lit = new_state
-                # Light the button on the active page
                 control.light(new_state)
 
             elif control in self.apc.grid and value:
@@ -218,10 +220,9 @@ class Sequencer:
                         is_on = getattr(button_states_from_model[i], "is_on", False)
                         button.light("orange" if is_on else "off")
 
-            # Update lit state for all page indicators on all pages
-            for page_buttons in self.apc.button_sets:
-                page_buttons.bottom_row[4 + self.current_page].lit = "off"
-                page_buttons.bottom_row[4 + page].lit = "green"
+            # Update page indicator lights
+            self.apc.bottom_row[4 + old_page_index].light("off")
+            self.apc.bottom_row[4 + page].light("green")
 
             self.current_page = page
             self.apc.activate_button_set(self.apc.button_sets[page])
@@ -229,14 +230,6 @@ class Sequencer:
 
         elif was_tempo_mode:
             self.redraw_grid_for_page(self.current_page)
-
-        # Handle initial page selection
-        elif not hasattr(self, "is_playing"):
-            for page_buttons in self.apc.button_sets:
-                for i in range(4, 8):
-                    page_buttons.bottom_row[i].lit = "off"
-                page_buttons.bottom_row[4 + page].lit = "green"
-            self.apc.activate_button_set(self.apc.button_sets[page])
 
     def lights_out(self):
         for button in self.apc.buttons:
