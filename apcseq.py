@@ -76,6 +76,9 @@ class Sequencer:
         self.total_pages = total_pages
         self.light_steps = light_steps
 
+        self.tempo = self.clock.tempo * 60
+        self.tempo_mode = False
+
         self.total_steps = total_pages * 8
         self.current_page = 0
 
@@ -121,6 +124,34 @@ class Sequencer:
         # Set initial page indicator
         self.select_page(0)
 
+    def redraw_grid_for_page(self, page_idx):
+        page_buttons = self.apc.button_sets[page_idx]
+        grid_buttons = page_buttons.grid
+        for button in grid_buttons:
+            is_on = getattr(button, "is_on", False)
+            button.light("orange" if is_on else "off")
+
+    def enter_tempo_mode(self):
+        self.tempo_mode = True
+        # Turn off playhead if it is on screen
+        if self.is_playing and self.prev_step is not None:
+            prev_page_of_playhead = self.prev_step // 8
+            if prev_page_of_playhead == self.current_page:
+                col_index_on_old_page = self.prev_step % 8
+                column_to_clear = self.apc.grid_columns[col_index_on_old_page]
+                button_states_from_model = self.apc.button_sets[
+                    self.current_page
+                ].grid_columns[col_index_on_old_page]
+
+                for i, button in enumerate(column_to_clear):
+                    is_on = getattr(button_states_from_model[i], "is_on", False)
+                    button.light("orange" if is_on else "off")
+        self.display_tempo()
+
+    def display_tempo(self):
+        tempo_str = str(int(round(self.tempo)))
+        self.apc.buttons.render_digits(tempo_str)
+
     def handle_input(self, control, value):
         if isinstance(control, Button):
             if control in self.apc.right_column and value:
@@ -136,9 +167,22 @@ class Sequencer:
                 control.light(new_state)
 
             elif control in self.apc.grid and value:
+                if self.tempo_mode:
+                    return
                 # Toggle sequence state
                 control.is_on = not getattr(control, "is_on", False)
                 control.light("orange" if control.is_on else "off")
+
+            elif control.number in [64, 65] and value:
+                if not self.tempo_mode:
+                    self.enter_tempo_mode()
+                else:
+                    if control.number == 64:  # Tempo down
+                        self.tempo = max(20, self.tempo - 1)
+                    else:  # Tempo up
+                        self.tempo = min(300, self.tempo + 1)
+                    self.clock.tempo = self.tempo / 60
+                    self.display_tempo()
 
             elif control.number >= 68 and control.number <= 71 and value:
                 self.select_page(control.number - 68)
@@ -153,6 +197,10 @@ class Sequencer:
         self.select_page(new_page)
 
     def select_page(self, page):
+        was_tempo_mode = self.tempo_mode
+        if was_tempo_mode:
+            self.tempo_mode = False
+
         if page != self.current_page:
             old_page_index = self.current_page
 
@@ -177,6 +225,11 @@ class Sequencer:
 
             self.current_page = page
             self.apc.activate_button_set(self.apc.button_sets[page])
+            self.redraw_grid_for_page(self.current_page)
+        
+        elif was_tempo_mode:
+            self.redraw_grid_for_page(self.current_page)
+
         # Handle initial page selection
         elif not hasattr(self, "is_playing"):
             for page_buttons in self.apc.button_sets:
