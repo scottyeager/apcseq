@@ -19,7 +19,7 @@ class Sequencer:
             page_step = sequencer.current_step % 8
             abs_step = sequencer.current_step
 
-            if sequencer.light_steps:
+            if sequencer.light_steps and not sequencer.tempo_mode:
                 # Turn off previous column if needed
                 if sequencer.prev_step is not None:
                     prev_abs_step = sequencer.prev_step
@@ -53,7 +53,7 @@ class Sequencer:
                     sequencer.midi_out.send_message([0x90, note, 100])
 
                 # Light the column only if it's in the current page
-                if sequencer.light_steps:
+                if sequencer.light_steps and not sequencer.tempo_mode:
                     if abs_step // 8 == sequencer.current_page:
                         if is_on:  # Active note
                             button.light("red")
@@ -177,10 +177,10 @@ class Sequencer:
                 if not self.tempo_mode:
                     self.enter_tempo_mode()
                 else:
-                    if control.number == 64:  # Tempo down
-                        self.tempo = max(20, self.tempo - 1)
-                    else:  # Tempo up
+                    if control.number == 64:  # Tempo up
                         self.tempo = min(300, self.tempo + 1)
+                    elif control.number == 65:  # Tempo down
+                        self.tempo = max(20, self.tempo - 1)
                     self.clock.tempo = self.tempo / 60
                     self.display_tempo()
 
@@ -226,7 +226,7 @@ class Sequencer:
             self.current_page = page
             self.apc.activate_button_set(self.apc.button_sets[page])
             self.redraw_grid_for_page(self.current_page)
-        
+
         elif was_tempo_mode:
             self.redraw_grid_for_page(self.current_page)
 
