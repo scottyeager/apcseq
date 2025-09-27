@@ -5,7 +5,6 @@ import rtmidi
 from sc3.base.all import Routine
 
 from pressed.controllers import APCMini
-from pressed.pressed import Button, Knob
 
 
 class Sequencer:
@@ -15,50 +14,25 @@ class Sequencer:
         sequencer = routine.sequencer
 
         while True:
-            # Get current step's absolute and page-relative position
+            page = sequencer.current_step // 8
             page_step = sequencer.current_step % 8
-            abs_step = sequencer.current_step
 
-            if sequencer.light_steps and not sequencer.tempo_mode:
-                # Turn off previous column if needed
-                if sequencer.prev_step is not None:
-                    prev_abs_step = sequencer.prev_step
-                    if prev_abs_step // 8 == sequencer.current_page:
-                        prev_page_step = prev_abs_step % 8
-                        prev_column = sequencer.apc.grid_columns[prev_page_step]
-                        prev_page_buttons = sequencer.apc.button_sets[
-                            prev_abs_step // 8
-                        ]
-                        prev_grid_col_buttons = prev_page_buttons.grid_columns[
-                            prev_page_step
-                        ]
-
-                        for i, button in enumerate(prev_column):
-                            is_on = getattr(prev_grid_col_buttons[i], "is_on", False)
-                            button.light("orange" if is_on else "off")
-                            if is_on and not sequencer.muted_rows[i]:
-                                note = sequencer.base_note + (7 - i)
-                                sequencer.midi_out.send_message([0x80, note, 0])
-
-            # Light up current column
-            column = sequencer.apc.grid_columns[page_step]
-            page_idx = abs_step // 8
-            page_buttons = sequencer.apc.button_sets[page_idx]
-            grid_col_buttons = page_buttons.grid_columns[page_step]
+            column = sequencer.page_button_sets[page].grid_columns[page_step]
 
             for i, button in enumerate(column):
-                is_on = getattr(grid_col_buttons[i], "is_on", False)
-                if is_on and not sequencer.muted_rows[i]:  # Active note and unmuted
+                if (
+                    button.is_on and not sequencer.muted_rows[i]
+                ):  # Active note and unmuted
                     note = sequencer.base_note + (7 - i)
                     sequencer.midi_out.send_message([0x90, note, 100])
 
-                # Light the column only if it's in the current page
-                if sequencer.light_steps and not sequencer.tempo_mode:
-                    if abs_step // 8 == sequencer.current_page:
-                        if is_on:  # Active note
-                            button.light("red")
-                        else:
-                            button.light("green")
+            sequencer.light_column(page, page_step, True)
+            previous_column = (page_step - 1) % 8
+            if previous_column == 7:
+                previous_page = (page - 1) % sequencer.total_pages
+            else:
+                previous_page = page
+            sequencer.light_column(previous_page, previous_column, False)
 
             sequencer.prev_step = sequencer.current_step
             sequencer.current_step = (
@@ -82,21 +56,47 @@ class Sequencer:
         self.total_steps = total_pages * 8
         self.current_page = 0
 
-        # Create a button set for each page
-        shared_bottom_row = self.apc.bottom_row
-        shared_right_column = self.apc.right_column
-        shared_shift = self.apc.shift
-        for _ in range(self.total_pages - 1):
-            self.apc.add_button_set(
-                bottom_row=shared_bottom_row,
-                right_column=shared_right_column,
-                shift=shared_shift,
-            )
+        # Default buttons becomes the first page
+        self.page_button_sets = [self.apc.buttons]
 
-        # Add is_on attribute to all grid buttons for sequence state
-        for page_buttons in self.apc.button_sets:
-            for button in page_buttons.grid:
+        # Only the grid is unique per page, reuse the rest
+        for page in range(self.total_pages - 1):
+            button_set = self.apc.add_button_set(
+                bottom_row=self.apc.bottom_row,
+                right_column=self.apc.right_column,
+                shift=self.apc.shift,
+            )
+            self.page_button_sets.append(button_set)
+
+        for i, button_set in enumerate(self.page_button_sets):
+            for button in button_set.grid:
+                button.page = i
                 button.is_on = False
+                button.press_action = self.grid_callback
+
+        self.apc.bottom_row[0].press_action = self.enter_tempo_mode
+        self.apc.bottom_row[1].press_action = self.enter_tempo_mode
+
+        for button in self.apc.bottom_row[4:]:
+            button.press_action = self.pages_callback
+
+        for button in self.apc.right_column:
+            button.press_action = self.mute_callback
+
+        # Add a button set for tempo mode
+        self.tempo_button_set = self.apc.add_button_set(
+            right_column=self.apc.right_column
+        )
+        self.tempo_button_set.bottom_row[0].press_action = self.increase_tempo
+        self.tempo_button_set.bottom_row[1].press_action = self.decrease_tempo
+
+        for button in self.tempo_button_set.bottom_row[4:]:
+            button.press_action = self.pages_callback
+
+        self.display_tempo()
+
+        for slider in self.apc.sliders:
+            slider.value_change_action = self.sliders_callback
 
         self.midi_out = rtmidi.MidiOut()
         self.midi_out.open_virtual_port("sequencer")
@@ -107,8 +107,6 @@ class Sequencer:
 
         # Initialize mute states - all unmuted to start
         self.muted_rows = [False for _ in range(8)]
-
-        self.apc.callbacks.append(self.handle_input)
 
         # With my setup where the APC Mini is connected to a powered docking
         # station, the lights will stay on even when the laptop is standby
@@ -131,105 +129,70 @@ class Sequencer:
             self.apc.bottom_row[i].light("off")
         self.apc.bottom_row[4 + self.current_page].light("green")
 
-    def redraw_grid_for_page(self, page_idx):
-        page_buttons = self.apc.button_sets[page_idx]
-        grid_buttons = page_buttons.grid
-        for button in grid_buttons:
-            is_on = getattr(button, "is_on", False)
-            button.light("orange" if is_on else "off")
+    def light_column(self, page, column, active):
+        buttons = self.page_button_sets[page].grid_columns[column]
+        for button in buttons:
+            if active:
+                if button.is_on:
+                    button.light("red")
+                elif not button.is_on:
+                    button.light("green")
+            else:
+                if button.is_on:
+                    button.light("orange")
+                elif not button.is_on:
+                    button.light("off")
 
-    def enter_tempo_mode(self):
-        self.tempo_mode = True
-        # Turn off playhead if it is on screen
-        if self.is_playing and self.prev_step is not None:
-            prev_page_of_playhead = self.prev_step // 8
-            if prev_page_of_playhead == self.current_page:
-                col_index_on_old_page = self.prev_step % 8
-                column_to_clear = self.apc.grid_columns[col_index_on_old_page]
-                button_states_from_model = self.apc.button_sets[
-                    self.current_page
-                ].grid_columns[col_index_on_old_page]
+    def enter_tempo_mode(self, control):
+        self.current_page = -1
+        self.apc.activate_button_set(self.tempo_button_set)
 
-                for i, button in enumerate(column_to_clear):
-                    is_on = getattr(button_states_from_model[i], "is_on", False)
-                    button.light("orange" if is_on else "off")
+    def increase_tempo(self, control):
+        self.tempo = min(300, self.tempo + 1)
+        self.display_tempo()
+
+    def decrease_tempo(self, control):
+        self.tempo = max(20, self.tempo - 1)
         self.display_tempo()
 
     def display_tempo(self):
         tempo_str = str(int(round(self.tempo)))
-        self.apc.buttons.render_digits(tempo_str)
+        self.tempo_button_set.render_digits(tempo_str)
 
-    def handle_input(self, control, value):
-        if isinstance(control, Button):
-            if control in self.apc.right_column and value:
-                # Handle mute buttons
-                row_idx = self.apc.right_column.index(control)
-                self.muted_rows[row_idx] = not self.muted_rows[row_idx]
-                new_state = "off" if self.muted_rows[row_idx] else "green"
-                control.light(new_state)
+    def grid_callback(self, control):
+        if self.tempo_mode:
+            return
+        # Toggle sequence state
+        control.is_on = not control.is_on
+        control.light("orange" if control.is_on else "off")
 
-            elif control in self.apc.grid and value:
-                if self.tempo_mode:
-                    return
-                # Toggle sequence state
-                control.is_on = not getattr(control, "is_on", False)
-                control.light("orange" if control.is_on else "off")
+    def mute_callback(self, control):
+        # Handle mute buttons
+        row_idx = control.number - 82
+        self.muted_rows[row_idx] = not self.muted_rows[row_idx]
+        new_state = "off" if self.muted_rows[row_idx] else "green"
+        control.light(new_state)
 
-            elif control.number in [64, 65] and value:
-                if not self.tempo_mode:
-                    self.enter_tempo_mode()
-                else:
-                    if control.number == 64:  # Tempo up
-                        self.tempo = min(300, self.tempo + 1)
-                    elif control.number == 65:  # Tempo down
-                        self.tempo = max(20, self.tempo - 1)
-                    self.clock.tempo = self.tempo / 60
-                    self.display_tempo()
+    def pages_callback(self, control):
+        self.select_page(control.number - 68)
 
-            elif control.number >= 68 and control.number <= 71 and value:
-                self.select_page(control.number - 68)
-        elif isinstance(control, Knob):
-            # Pass through the sliders. This isn't so efficient, but
-            # it's an easy way to prevent the note messages for the grid
-            # from leaking through
-            self.midi_out.send_message([0xB0, control.number, value])
-
-    def change_page(self, delta):
-        new_page = min(self.total_pages - 1, max(0, self.current_page + delta))
-        self.select_page(new_page)
+    def sliders_callback(self, control, value):
+        # Pass through the sliders. This isn't so efficient, but
+        # it's an easy way to prevent the note messages for the grid
+        # from leaking through
+        self.midi_out.send_message([0xB0, control.number, value])
 
     def select_page(self, page):
-        was_tempo_mode = self.tempo_mode
-        if was_tempo_mode:
-            self.tempo_mode = False
-
         if page != self.current_page:
             old_page_index = self.current_page
 
-            # Clean up playhead from the old page if it's currently there
-            if self.is_playing and self.prev_step is not None:
-                prev_page_of_playhead = self.prev_step // 8
-                if prev_page_of_playhead == old_page_index:
-                    col_index_on_old_page = self.prev_step % 8
-                    column_to_clear = self.apc.grid_columns[col_index_on_old_page]
-                    button_states_from_model = self.apc.button_sets[
-                        old_page_index
-                    ].grid_columns[col_index_on_old_page]
-
-                    for i, button in enumerate(column_to_clear):
-                        is_on = getattr(button_states_from_model[i], "is_on", False)
-                        button.light("orange" if is_on else "off")
-
-            # Update page indicator lights
-            self.apc.bottom_row[4 + old_page_index].light("off")
-            self.apc.bottom_row[4 + page].light("green")
-
             self.current_page = page
             self.apc.activate_button_set(self.apc.button_sets[page])
-            self.redraw_grid_for_page(self.current_page)
 
-        elif was_tempo_mode:
-            self.redraw_grid_for_page(self.current_page)
+            # Update page indicator lights
+            for i in range(4, 8):
+                self.apc.bottom_row[i].light("off")
+            self.apc.bottom_row[4 + page].light("red")
 
     def lights_out(self):
         for button in self.apc.buttons:
