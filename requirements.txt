@@ -1,0 +1,5 @@
+evdev==1.9.2
+hid==1.0.8
+git+https://github.com/scottyeager/pressed
+python-rtmidi==1.5.8
+sc3==1.1.3a0
