@@ -2,9 +2,8 @@ import atexit
 import time
 
 import rtmidi
-from sc3.base.all import Routine
-
 from pressed.controllers import APCMini
+from sc3.base.all import Routine
 
 
 class Sequencer:
@@ -149,10 +148,12 @@ class Sequencer:
 
     def increase_tempo(self, control):
         self.tempo = min(300, self.tempo + 1)
+        self.clock.tempo = self.tempo / 60
         self.display_tempo()
 
     def decrease_tempo(self, control):
         self.tempo = max(20, self.tempo - 1)
+        self.clock.tempo = self.tempo / 60
         self.display_tempo()
 
     def display_tempo(self):
