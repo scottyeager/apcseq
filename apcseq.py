@@ -87,7 +87,12 @@ class Sequencer:
             right_column=self.apc.right_column
         )
         self.tempo_button_set.bottom_row[0].press_action = self.increase_tempo
+        self.tempo_button_set.bottom_row[0].hold_action = self.increase_tempo_hold
+        self.tempo_button_set.bottom_row[0].hold_time = 0.2
+
         self.tempo_button_set.bottom_row[1].press_action = self.decrease_tempo
+        self.tempo_button_set.bottom_row[1].hold_action = self.decrease_tempo_hold
+        self.tempo_button_set.bottom_row[1].hold_time = 0.2
 
         for button in self.tempo_button_set.bottom_row[4:]:
             button.press_action = self.pages_callback
@@ -151,9 +156,25 @@ class Sequencer:
         self.clock.tempo = self.tempo / 60
         self.display_tempo()
 
+    def increase_tempo_hold(self, control):
+        while control.held:
+            self.tempo = min(300, self.tempo + 1)
+            self.clock.tempo = self.tempo / 60
+            self.display_tempo()
+            time.sleep(0.1)
+        self.display_tempo()
+
     def decrease_tempo(self, control):
         self.tempo = max(20, self.tempo - 1)
         self.clock.tempo = self.tempo / 60
+        self.display_tempo()
+
+    def decrease_tempo_hold(self, control):
+        while control.held:
+            self.tempo = max(20, self.tempo - 1)
+            self.clock.tempo = self.tempo / 60
+            self.display_tempo()
+            time.sleep(0.1)
         self.display_tempo()
 
     def display_tempo(self):
