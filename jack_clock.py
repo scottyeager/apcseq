@@ -1,6 +1,5 @@
 import jack
 import threading
-import time
 
 
 class JackRoutine:
@@ -18,6 +17,9 @@ class JackRoutine:
 
     def stop(self):
         self._stopped = True
+        # Wake the worker thread so it can exit
+        if hasattr(self, "_step_event"):
+            self._step_event.set()
 
 
 class JackClock:
@@ -26,6 +28,11 @@ class JackClock:
     Drop-in replacement for sc3 TempoClock. The sequencer follows JACK
     transport state (rolling/stopped) and tempo (from BBT). When no
     timebase master provides BBT, the internally set tempo is used.
+
+    Uses JACK's process callback to detect step boundaries, so there
+    is no polling — the check runs exactly once per audio cycle.
+    A worker thread wakes via Event to do the actual sequencer work
+    (MIDI, LEDs) outside the realtime callback.
     """
 
     routine_class = JackRoutine
@@ -35,6 +42,15 @@ class JackClock:
         self._tempo_bps = 2.0  # 120 BPM in beats per second
         self._routine = None
         self._thread = None
+
+        self._step_event = threading.Event()
+        self._was_rolling = False
+        self._last_abs_step = None
+        self._seq_step = 0
+        self._steps_per_beat = 4
+        self._total_steps = 16
+
+        self.client.set_process_callback(self._process)
         self.client.activate()
 
     @property
@@ -48,7 +64,13 @@ class JackClock:
     def play(self, routine):
         """Start following JACK transport, driving the given routine."""
         self._routine = routine
-        self._thread = threading.Thread(target=self._transport_loop, daemon=True)
+        routine._step_event = self._step_event
+
+        sequencer = routine.sequencer
+        self._steps_per_beat = sequencer.steps_per_beat
+        self._total_steps = sequencer.total_steps
+
+        self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
 
     def _beat_position(self, pos):
@@ -69,50 +91,44 @@ class JackClock:
             frame_rate = pos.get("frame_rate", 48000)
             return frame / frame_rate * self._tempo_bps
 
-    def _transport_loop(self):
+    def _process(self, frames):
+        """JACK process callback — runs once per audio cycle.
+
+        Lightweight: just reads transport state, does arithmetic, and
+        sets an Event when a step boundary is crossed.
+        """
+        state, pos = self.client.transport_query()
+
+        if state != jack.ROLLING:
+            self._was_rolling = False
+            return
+
+        bpm = pos.get("beats_per_minute", 0)
+        if bpm > 0:
+            self._tempo_bps = bpm / 60
+
+        abs_beat = self._beat_position(pos)
+        abs_step = int(abs_beat * self._steps_per_beat)
+
+        if not self._was_rolling or abs_step != self._last_abs_step:
+            self._was_rolling = True
+            self._seq_step = abs_step % self._total_steps
+            self._last_abs_step = abs_step
+            self._step_event.set()
+
+    def _worker(self):
+        """Worker thread — wakes on step events to drive the sequencer."""
         routine = self._routine
         sequencer = routine.sequencer
         gen = routine.func((routine, self))
 
-        was_rolling = False
-        last_abs_step = None
-
         while not routine._stopped:
-            state, pos = self.client.transport_query()
-
-            if state != jack.ROLLING:
-                was_rolling = False
-                time.sleep(0.005)
-                continue
-
-            # Update tempo from JACK BBT if a timebase master provides it
-            bpm = pos.get("beats_per_minute", 0)
-            if bpm > 0:
-                self._tempo_bps = bpm / 60
-
-            # Derive current step from JACK beat position
-            abs_beat = self._beat_position(pos)
-            abs_step = int(abs_beat * sequencer.steps_per_beat)
-            seq_step = abs_step % sequencer.total_steps
-
-            if not was_rolling:
-                # Transport just started — sync position and fire first step
-                was_rolling = True
-                sequencer.current_step = seq_step
-                last_abs_step = abs_step
-                try:
-                    next(gen)
-                except StopIteration:
-                    break
-                continue
-
-            if abs_step != last_abs_step:
-                # Crossed a step boundary — sync position and fire
-                sequencer.current_step = seq_step
-                last_abs_step = abs_step
-                try:
-                    next(gen)
-                except StopIteration:
-                    break
-            else:
-                time.sleep(0.001)
+            self._step_event.wait()
+            self._step_event.clear()
+            if routine._stopped:
+                break
+            sequencer.current_step = self._seq_step
+            try:
+                next(gen)
+            except StopIteration:
+                break
