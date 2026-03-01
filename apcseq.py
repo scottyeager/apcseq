@@ -198,11 +198,11 @@ class Sequencer:
     def pages_callback(self, control):
         self.select_page(control.number - 68)
 
-    def sliders_callback(self, control, value):
+    def sliders_callback(self, control):
         # Pass through the sliders. This isn't so efficient, but
         # it's an easy way to prevent the note messages for the grid
         # from leaking through
-        self.midi_out.send_message([0xB0, control.number, value])
+        self.midi_out.send_message([0xB0, control.number, control.value * 127])
 
     def select_page(self, page):
         if page != self.current_page:
