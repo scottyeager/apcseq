@@ -51,12 +51,31 @@ class JackClock:
         self._thread = threading.Thread(target=self._transport_loop, daemon=True)
         self._thread.start()
 
+    def _beat_position(self, pos):
+        """Calculate absolute beat position from JACK transport position.
+
+        Uses BBT (Bar/Beat/Tick) when a timebase master provides it,
+        otherwise falls back to frame-based calculation using internal tempo.
+        """
+        if "beat" in pos and "bar" in pos:
+            bar = pos["bar"]
+            beat = pos["beat"]
+            tick = pos.get("tick", 0)
+            ticks_per_beat = pos.get("ticks_per_beat", 1920.0)
+            beats_per_bar = pos.get("beats_per_bar", 4.0)
+            return (bar - 1) * beats_per_bar + (beat - 1) + tick / ticks_per_beat
+        else:
+            frame = pos.get("frame", 0)
+            frame_rate = pos.get("frame_rate", 48000)
+            return frame / frame_rate * self._tempo_bps
+
     def _transport_loop(self):
         routine = self._routine
         sequencer = routine.sequencer
         gen = routine.func((routine, self))
 
         was_rolling = False
+        last_abs_step = None
 
         while not routine._stopped:
             state, pos = self.client.transport_query()
@@ -66,46 +85,34 @@ class JackClock:
                 time.sleep(0.005)
                 continue
 
-            # Sync position on transport start from frame 0
-            if not was_rolling:
-                was_rolling = True
-                if pos.get("frame", -1) == 0:
-                    sequencer.current_step = 0
-
             # Update tempo from JACK BBT if a timebase master provides it
             bpm = pos.get("beats_per_minute", 0)
             if bpm > 0:
                 self._tempo_bps = bpm / 60
 
-            # Execute one step of the sequencer
-            try:
-                step_beats = next(gen)
-            except StopIteration:
-                break
+            # Derive current step from JACK beat position
+            abs_beat = self._beat_position(pos)
+            abs_step = int(abs_beat * sequencer.steps_per_beat)
+            seq_step = abs_step % sequencer.total_steps
 
-            # Wait for the step duration according to current tempo
-            if self._tempo_bps > 0:
-                step_seconds = step_beats / self._tempo_bps
-            else:
-                step_seconds = 0.125
-
-            deadline = time.monotonic() + step_seconds
-            while time.monotonic() < deadline and not routine._stopped:
-                time.sleep(0.001)
-
-                state, pos = self.client.transport_query()
-                if state != jack.ROLLING:
-                    was_rolling = False
-                    # Transport stopped mid-step, wait for it to resume
-                    while not routine._stopped:
-                        state, _ = self.client.transport_query()
-                        if state == jack.ROLLING:
-                            was_rolling = True
-                            break
-                        time.sleep(0.005)
+            if not was_rolling:
+                # Transport just started — sync position and fire first step
+                was_rolling = True
+                sequencer.current_step = seq_step
+                last_abs_step = abs_step
+                try:
+                    next(gen)
+                except StopIteration:
                     break
+                continue
 
-                # Track tempo changes while waiting
-                bpm = pos.get("beats_per_minute", 0)
-                if bpm > 0:
-                    self._tempo_bps = bpm / 60
+            if abs_step != last_abs_step:
+                # Crossed a step boundary — sync position and fire
+                sequencer.current_step = seq_step
+                last_abs_step = abs_step
+                try:
+                    next(gen)
+                except StopIteration:
+                    break
+            else:
+                time.sleep(0.001)
