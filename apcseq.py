@@ -3,7 +3,6 @@ import time
 
 import rtmidi
 from pressed.controllers import APCMini
-from sc3.base.all import Routine
 
 
 class Sequencer:
@@ -222,7 +221,12 @@ class Sequencer:
 
     def play(self):
         if not self.is_playing:
-            self.routine = Routine(self.tick)
+            routine_class = getattr(self.clock, "routine_class", None)
+            if routine_class is None:
+                from sc3.base.all import Routine
+
+                routine_class = Routine
+            self.routine = routine_class(self.tick)
             self.routine.sequencer = self
             self.clock.play(self.routine)
             self.is_playing = True
