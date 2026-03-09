@@ -1,5 +1,7 @@
-from jack_clock import JackClock
+import time
+
 from apcseq import Sequencer
+from jack_clock import JackClock
 
 # Create a JACK transport clock (client mode - follows JACK transport)
 clock = JackClock()
@@ -9,3 +11,6 @@ seq = Sequencer(clock, steps_per_beat=4, light_steps=True)
 
 # Start following JACK transport
 seq.play()
+
+while True:
+    time.sleep(1)

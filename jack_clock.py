@@ -1,5 +1,4 @@
 import jack
-import threading
 
 
 class JackRoutine:
@@ -17,22 +16,19 @@ class JackRoutine:
 
     def stop(self):
         self._stopped = True
-        # Wake the worker thread so it can exit
-        if hasattr(self, "_step_event"):
-            self._step_event.set()
 
 
 class JackClock:
-    """Clock that follows JACK transport in client mode.
+    """Clock that follows JACK transport using the process callback.
 
-    Drop-in replacement for sc3 TempoClock. The sequencer follows JACK
-    transport state (rolling/stopped) and tempo (from BBT). When no
-    timebase master provides BBT, the internally set tempo is used.
+    Inspired by Hydrogen's approach: uses JACK's process callback for
+    sample-accurate step timing instead of polling with time.sleep().
 
-    Uses JACK's process callback to detect step boundaries, so there
-    is no polling — the check runs exactly once per audio cycle.
-    A worker thread wakes via Event to do the actual sequencer work
-    (MIDI, LEDs) outside the realtime callback.
+    The process callback is invoked by JACK every buffer period (e.g.
+    every 1024 frames at 48kHz ≈ 21ms). On each call we query transport
+    state, compute the current step from BBT, and fire the sequencer
+    when a step boundary is crossed — including any steps that were
+    skipped between callbacks.
     """
 
     routine_class = JackRoutine
@@ -41,14 +37,10 @@ class JackClock:
         self.client = jack.Client(client_name)
         self._tempo_bps = 2.0  # 120 BPM in beats per second
         self._routine = None
-        self._thread = None
-
-        self._step_event = threading.Event()
-        self._was_rolling = False
-        self._last_abs_step = None
-        self._seq_step = 0
+        self._gen = None
         self._steps_per_beat = 4
         self._total_steps = 16
+        self._last_abs_step = None
 
         self.client.set_process_callback(self._process)
         self.client.activate()
@@ -64,14 +56,13 @@ class JackClock:
     def play(self, routine):
         """Start following JACK transport, driving the given routine."""
         self._routine = routine
-        routine._step_event = self._step_event
 
         sequencer = routine.sequencer
         self._steps_per_beat = sequencer.steps_per_beat
         self._total_steps = sequencer.total_steps
 
-        self._thread = threading.Thread(target=self._worker, daemon=True)
-        self._thread.start()
+        self._gen = routine.func((routine, self))
+        self._last_abs_step = None
 
     def _beat_position(self, pos):
         """Calculate absolute beat position from JACK transport position.
@@ -88,47 +79,56 @@ class JackClock:
             return (bar - 1) * beats_per_bar + (beat - 1) + tick / ticks_per_beat
         else:
             frame = pos.get("frame", 0)
-            frame_rate = pos.get("frame_rate", 48000)
+            frame_rate = pos["frame_rate"]
             return frame / frame_rate * self._tempo_bps
 
-    def _process(self, frames):
-        """JACK process callback — runs once per audio cycle.
+    def _fire_step(self, seq_step):
+        """Set the sequencer position and advance the generator."""
+        self._routine.sequencer.current_step = seq_step
+        try:
+            next(self._gen)
+        except StopIteration:
+            self._routine._stopped = True
 
-        Lightweight: just reads transport state, does arithmetic, and
-        sets an Event when a step boundary is crossed.
+    def _process(self, frames):
+        """JACK process callback — called every buffer period.
+
+        Queries transport, detects step boundaries, and fires the
+        sequencer. Handles skipped steps (large buffer sizes) and
+        transport relocation (rewind/jump).
         """
+        routine = self._routine
+        if routine is None or routine._stopped:
+            return
+
         state, pos = self.client.transport_query()
 
         if state != jack.ROLLING:
-            self._was_rolling = False
+            self._last_abs_step = None
             return
 
+        # Sync tempo from timebase master
         bpm = pos.get("beats_per_minute", 0)
         if bpm > 0:
             self._tempo_bps = bpm / 60
 
         abs_beat = self._beat_position(pos)
         abs_step = int(abs_beat * self._steps_per_beat)
+        last = self._last_abs_step
 
-        if not self._was_rolling or abs_step != self._last_abs_step:
-            self._was_rolling = True
-            self._seq_step = abs_step % self._total_steps
+        if last is not None and abs_step == last:
+            return  # Still on the same step
+
+        # Transport relocated backwards — just jump to the new position
+        if last is not None and abs_step < last:
             self._last_abs_step = abs_step
-            self._step_event.set()
+            self._fire_step(abs_step % self._total_steps)
+            return
 
-    def _worker(self):
-        """Worker thread — wakes on step events to drive the sequencer."""
-        routine = self._routine
-        sequencer = routine.sequencer
-        gen = routine.func((routine, self))
+        # Fire any steps we skipped over (e.g. large buffer size)
+        if last is not None:
+            for missed in range(last + 1, abs_step):
+                self._fire_step(missed % self._total_steps)
 
-        while not routine._stopped:
-            self._step_event.wait()
-            self._step_event.clear()
-            if routine._stopped:
-                break
-            sequencer.current_step = self._seq_step
-            try:
-                next(gen)
-            except StopIteration:
-                break
+        self._last_abs_step = abs_step
+        self._fire_step(abs_step % self._total_steps)
