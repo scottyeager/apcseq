@@ -39,32 +39,40 @@ class Sequencer:
             yield 1 / sequencer.steps_per_beat
 
     def __init__(
-        self, clock, base_note=36, steps_per_beat=2, total_pages=2, light_steps=True
+        self,
+        clock,
+        apc=None,
+        page_button_sets=None,
+        base_note=36,
+        steps_per_beat=2,
+        total_pages=2,
+        light_steps=True,
     ):
-        self.apc = APCMini()
+        self.apc = apc or APCMini()
         self.clock = clock
         self.base_note = base_note
         self.steps_per_beat = steps_per_beat
-        self.total_pages = total_pages
         self.light_steps = light_steps
 
         self.tempo = self.clock.tempo * 60
         self.tempo_mode = False
 
-        self.total_steps = total_pages * 8
+        if page_button_sets:
+            self.page_button_sets = page_button_sets
+            self.total_pages = len(page_button_sets)
+        else:
+            self.total_pages = total_pages
+            self.page_button_sets = [self.apc.buttons]
+            for page in range(self.total_pages - 1):
+                button_set = self.apc.add_button_set(
+                    bottom_row=self.apc.bottom_row,
+                    right_column=self.apc.right_column,
+                    shift=self.apc.shift,
+                )
+                self.page_button_sets.append(button_set)
+
+        self.total_steps = self.total_pages * 8
         self.current_page = 0
-
-        # Default buttons becomes the first page
-        self.page_button_sets = [self.apc.buttons]
-
-        # Only the grid is unique per page, reuse the rest
-        for page in range(self.total_pages - 1):
-            button_set = self.apc.add_button_set(
-                bottom_row=self.apc.bottom_row,
-                right_column=self.apc.right_column,
-                shift=self.apc.shift,
-            )
-            self.page_button_sets.append(button_set)
 
         for i, button_set in enumerate(self.page_button_sets):
             for button in button_set.grid:
@@ -72,18 +80,23 @@ class Sequencer:
                 button.is_on = False
                 button.press_action = self.grid_callback
 
-        self.apc.bottom_row[0].press_action = self.enter_tempo_mode
-        self.apc.bottom_row[1].press_action = self.enter_tempo_mode
+        # Use the first page set's bottom_row and right_column as the
+        # canonical ones for the sequencer (shared across all page sets)
+        self.bottom_row = self.page_button_sets[0].bottom_row
+        self.right_column = self.page_button_sets[0].right_column
 
-        for button in self.apc.bottom_row[4:]:
+        self.bottom_row[0].press_action = self.enter_tempo_mode
+        self.bottom_row[1].press_action = self.enter_tempo_mode
+
+        for button in self.bottom_row[4:]:
             button.press_action = self.pages_callback
 
-        for button in self.apc.right_column:
+        for button in self.right_column:
             button.press_action = self.mute_callback
 
         # Add a button set for tempo mode
         self.tempo_button_set = self.apc.add_button_set(
-            right_column=self.apc.right_column
+            right_column=self.right_column
         )
         self.tempo_button_set.bottom_row[0].press_action = self.increase_tempo
         self.tempo_button_set.bottom_row[0].hold_action = self.increase_tempo_hold
@@ -123,14 +136,14 @@ class Sequencer:
             button.light("off")
 
         # Light up right column (mute buttons)
-        for button in self.apc.right_column:
+        for button in self.right_column:
             button.light("on")
 
         # Set initial page indicator
         self.select_page(0)
         for i in range(4, 8):
-            self.apc.bottom_row[i].light("off")
-        self.apc.bottom_row[4 + self.current_page].light("green")
+            self.bottom_row[i].light("off")
+        self.bottom_row[4 + self.current_page].light("green")
 
     def light_column(self, page, column, active):
         buttons = self.page_button_sets[page].grid_columns[column]
@@ -212,8 +225,8 @@ class Sequencer:
 
             # Update page indicator lights
             for i in range(4, 8):
-                self.apc.bottom_row[i].light("off")
-            self.apc.bottom_row[4 + page].light("red")
+                self.bottom_row[i].light("off")
+            self.bottom_row[4 + page].light("red")
 
     def lights_out(self):
         for button in self.apc.buttons:
@@ -256,20 +269,13 @@ class Sequencer:
                         button.light("orange" if is_on else "off")
 
 
-if __name__ == "__main__":
-    from sc3.all import *
+def main():
+    from sc3.all import TempoClock
 
-    # Create a clock at 120 BPM
     clock = TempoClock(120 / 60)
-
-    # Create sequencer with 4 steps per beat
     seq = Sequencer(clock, steps_per_beat=4, total_pages=4)
-
-    # Start the sequencer
     seq.play()
 
-    # while True:
-    #     time.sleep(0.1)
 
-    # Stop the sequencer
-    # seq.stop()
+if __name__ == "__main__":
+    main()

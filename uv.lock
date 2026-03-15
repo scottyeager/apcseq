@@ -1,0 +1,67 @@
+version = 1
+revision = 3
+requires-python = ">=3.12"
+
+[[package]]
+name = "apcseq"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "pressed" },
+    { name = "python-rtmidi" },
+    { name = "sc3" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pressed", git = "https://github.com/scottyeager/pressed" },
+    { name = "python-rtmidi", specifier = ">=1.5" },
+    { name = "sc3", specifier = ">=1.1" },
+]
+
+[[package]]
+name = "evdev"
+version = "1.9.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/fe/a17c106a1f4061ce83f04d14bcedcfb2c38c7793ea56bfb906a6fadae8cb/evdev-1.9.2.tar.gz", hash = "sha256:5d3278892ce1f92a74d6bf888cc8525d9f68af85dbe336c95d1c87fb8f423069", size = 33301, upload-time = "2025-05-01T19:53:47.69Z" }
+
+[[package]]
+name = "hid"
+version = "1.0.8"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/29/42/9cd3eab530ffae5e0ff880c575fd18cfdfe292b71f1e9872c392329f35fd/hid-1.0.8.tar.gz", hash = "sha256:5ca129a7b9434ace5e3e429c1092a16792feffaf067a46b666e9c586872cdcfe", size = 4967, upload-time = "2025-06-28T16:20:27.576Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ee/52/24bfaee85a5e25f2d1a389944a3576d408ab3ca935176e892cbef47b92b6/hid-1.0.8-py3-none-any.whl", hash = "sha256:9b6fac92098322ae5d8d839c2bb30620b7533284bcf5f3e6aedcc0483c388046", size = 4949, upload-time = "2025-06-28T16:20:26.745Z" },
+]
+
+[[package]]
+name = "pressed"
+version = "0.1.1"
+source = { git = "https://github.com/scottyeager/pressed#868cbf1d50eafc9d9281d5caff6ad6307cfce954" }
+dependencies = [
+    { name = "evdev" },
+    { name = "hid" },
+    { name = "python-rtmidi" },
+]
+
+[[package]]
+name = "python-rtmidi"
+version = "1.5.8"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/dd/ee/0f91965dcc471714c69df21e5ca3d94dc81411b7dee2d31ff1184bea07c9/python_rtmidi-1.5.8.tar.gz", hash = "sha256:7f9ade68b068ae09000ecb562ae9521da3a234361ad5449e83fc734544d004fa", size = 368130, upload-time = "2023-11-20T21:55:02.192Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/51/27/887b0378e0a907489a07bdeb808fa5ed349675245c6ee14d9f6d00304f96/python_rtmidi-1.5.8-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:5443634597eb340cdec0734f76267a827c2d366f00a6f9195141c78828016ac2", size = 158861, upload-time = "2023-11-20T21:54:39.549Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/ec/57cecde253daab896ce53778520cd41eb062641862ebdb0ee6f97511b1d9/python_rtmidi-1.5.8-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:29d9c9d9f82ce679fecad7bb4cb79f3a24574ea84600e377194b4cc1baacec0e", size = 153416, upload-time = "2023-11-20T21:54:40.835Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/5b/dc19c53d9d512b74dc2cca3725591cc612b9465645695a0696352a8c8b54/python_rtmidi-1.5.8-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:25f5a5db7be98911c41ca5bebb262fcf9a7c89600b88fd3c207ceafd3101e721", size = 305696, upload-time = "2023-11-20T21:54:42.037Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/92/5a60f56dfb2740e644e932233928947423cd2101895319b331f84527eb31/python_rtmidi-1.5.8-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:cec30924e305f55284594ccf35a71dee7216fd308dfa2dec1b3ed03e6f243803", size = 315579, upload-time = "2023-11-20T21:54:43.339Z" },
+    { url = "https://files.pythonhosted.org/packages/93/46/6af077d262f521ea2bf1ab60b8aad72f34fe6dd55af739176605369d449c/python_rtmidi-1.5.8-cp312-cp312-win_amd64.whl", hash = "sha256:052c89933cae4fca354012d8ca7248f4f9e1e3f062471409d48415a7f7d7e59e", size = 129755, upload-time = "2023-11-20T21:54:44.935Z" },
+]
+
+[[package]]
+name = "sc3"
+version = "1.1.3a0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f5/01/9d512fa99c99975cede4127645dab23f371739d5ad7eb045a646eac0130e/sc3-1.1.3a0.tar.gz", hash = "sha256:0d8e7d55e1f4a288bda7c35bf590496733c9f2c055b5dc345813d5e9a7413e92", size = 224273, upload-time = "2022-08-10T08:25:34.741Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/42/0c/3c2af8f91d68e946304d440b3ab641ac2499b566cc871f89a1ce4c27325b/sc3-1.1.3a0-py3-none-any.whl", hash = "sha256:862bd00c5263e83ef03678be5d2945e977e8de4228c68e5dfa301ace96157a21", size = 255498, upload-time = "2022-08-10T08:25:33.19Z" },
+]

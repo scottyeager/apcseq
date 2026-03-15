@@ -1,0 +1,20 @@
+[project]
+name = "apcseq"
+version = "0.1.0"
+description = "A step sequencer for the Akai APC Mini"
+requires-python = ">=3.12"
+dependencies = [
+    "python-rtmidi>=1.5",
+    "pressed>=0.1",
+    "sc3>=1.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+pressed = { git = "https://github.com/scottyeager/pressed" }
+
+[project.scripts]
+apcseq = "apcseq:main"
