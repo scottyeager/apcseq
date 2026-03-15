@@ -208,7 +208,7 @@ class Sequencer:
             old_page_index = self.current_page
 
             self.current_page = page
-            self.apc.activate_button_set(self.apc.button_sets[page])
+            self.apc.activate_button_set(self.page_button_sets[page])
 
             # Update page indicator lights
             for i in range(4, 8):
