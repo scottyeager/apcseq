@@ -114,7 +114,7 @@ class Sequencer:
         for slider in self.apc.sliders:
             slider.value_change_action = self.sliders_callback
 
-        self.midi_out = rtmidi.MidiOut()
+        self.midi_out = rtmidi.MidiOut(name="apcseq")
         self.midi_out.open_virtual_port("sequencer")
 
         self.current_step = 0

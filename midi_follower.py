@@ -37,7 +37,7 @@ class MidiFollower:
         self._ticks_per_step = 6  # 24 ppqn / 4 steps_per_beat
         self._running = False
 
-        self._midi_in = rtmidi.MidiIn()
+        self._midi_in = rtmidi.MidiIn(name="apcseq")
         self._midi_in.open_virtual_port(port_name)
         self._midi_in.ignore_types(sysex=True, timing=False, active_sense=True)
 
